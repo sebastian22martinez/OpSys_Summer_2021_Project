@@ -9,9 +9,22 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <math.h>
+#include <vector>
+#include <iostream>
 
+struct process_Info {
+	char processID;
+	int arrivalTime;
+	int numBursts;
+	int cpuBurstTime;
+	int ioBurstTime;
+};
 
 double next_exp(int max, double lambda);
+void FCFS();
+void SJF();
+void SRT();
+void RR();
 
 int main(int argc, char ** argv){
 	if(argc != 8){
@@ -54,7 +67,17 @@ int main(int argc, char ** argv){
 		return EXIT_FAILURE;
 	}
 	srand48(seed);
-	next_exp(upBound, lambda);
+	std::vector<process_Info> processes;
+	for (int i = 0; i < numProc; i++) {
+		process_Info process;
+		process.processID = 65 + i;
+		process.arrivalTime = floor(next_exp(upBound, lambda));
+		process.numBursts = ceil(drand48() * 100);
+		process.cpuBurstTime = ceil(next_exp(upBound, lambda));
+		if (i != numProc - 1) {
+			process.ioBurstTime = ceil(next_exp(upBound, lambda)) * 10;
+		}
+	}
 }
 
 double next_exp(int max, double lambda){
@@ -71,6 +94,5 @@ double next_exp(int max, double lambda){
 
     break;
   }	
-  printf("%f\n", x);
   return x;
 }
