@@ -11,6 +11,8 @@
 #include <math.h>
 #include <vector>
 #include <iostream>
+#include <fstream>
+#include <iomanip>
 
 struct process_Info {
 	char processID;
@@ -32,14 +34,15 @@ void SRT(std::vector<process_Info> processes, int csTime);
 void RR(std::vector<process_Info> processes, int csTime);
 
 int main(int argc, char ** argv){
+	//Error Checking Arguments
 	if(argc != 8){
 		fprintf(stderr, "Not enough command-line arguments.\n");
 		return EXIT_FAILURE;
 	}
 	int numProc = atoi(argv[1]);
 	if(numProc < 1 || numProc > 26){
-fprintf(stderr, "Invalid number of processes.\n");
-return EXIT_FAILURE;
+		fprintf(stderr, "Invalid number of processes.\n");
+		return EXIT_FAILURE;
 	}
 	int seed = atoi(argv[2]);
 	if (seed == 0) {
@@ -71,6 +74,7 @@ return EXIT_FAILURE;
 		fprintf(stderr, "Invalid time slice.\n");
 		return EXIT_FAILURE;
 	}
+	//Setting up information for each process
 	srand48(seed);
 	std::vector<process_Info> processes;
 	for (int i = 0; i < numProc; i++) {
@@ -78,6 +82,8 @@ return EXIT_FAILURE;
 		process.processID = 65 + i;
 		process.arrivalTime = floor(next_exp(upBound, lambda));
 		process.numBursts = ceil(drand48() * 100);
+		process.waitTimes.resize(process.numBursts);
+		process.turnaroundTimes.resize(process.numBursts);
 		for (int j = 0; j < process.numBursts; j++) {
 			process.cpuBurstTimes.push_back(ceil(next_exp(upBound, lambda)));
 			if (j != process.numBursts - 1) {
@@ -100,6 +106,7 @@ return EXIT_FAILURE;
 	FCFS(processes, csTime);
 }
 
+//Calculating a random number based on exponential distribution
 double next_exp(int max, double lambda) {
 	double x = 0;
 	while (true)
@@ -116,6 +123,8 @@ double next_exp(int max, double lambda) {
 	return x;
 }
 
+//Returns the ready queue in the format [Q [List of processes in the ready queue]]
+//Or [Q empty] if the ready queue is empty
 std::string ready_Queue_Format(std::vector<process_Info*> readyQueue) {
 	std::string queue = "[Q";
 	if (readyQueue.size() == 0) {
@@ -138,7 +147,11 @@ void FCFS(std::vector<process_Info> processes, int csTime) {
 	process_Info * runningProcess;
 	bool running = false;
 	int cpuEmptyTime = 0;
+	float cpuUtilization = 0;
+	int numContextSwitches = 0;
+	bool cpuUtilized = false;
 	while (true) {
+		//Context switching the process out of the CPU is done
 		if (cpuEmptyTime == time) {
 			running = false;
 			runningProcess = nullptr;
@@ -153,17 +166,28 @@ void FCFS(std::vector<process_Info> processes, int csTime) {
 				break;
 			}
 		}
+		//CPU is being utilized(not including context switches)
+		if (cpuUtilized)
+			cpuUtilization++;
+		//Process in front of the ready queue is being switched into the CPU ( context switch done )
 		if (readyQueue.size() > 0 && readyQueue[0]->burstStartTime == time) {
+			cpuUtilized = true;
 			runningProcess = readyQueue[0];
+			readyQueue[0]->waitTimes[readyQueue[0]->burstsCompleted] -= csTime / 2;
 			running = true;
 			readyQueue.erase(readyQueue.begin());
 			std::cout << "time " << time << "ms: Process " << runningProcess->processID << " started using the CPU for " 
 					  << runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " << ready_Queue_Format(readyQueue) << std::endl;
 		}
+		//Process in the CPU is technically done running, still need to account for context switch times
 		if (running && runningProcess->burstEndTime == time) {
+			cpuUtilized = false;
 			cpuEmptyTime = time + csTime / 2;
+			numContextSwitches++;
+			runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += runningProcess->burstEndTime - runningProcess->burstStartTime + csTime / 2;
 			runningProcess->burstsCompleted++;
 			std::string burst = "";
+			//If this is the last burst for this process
 			if (runningProcess->burstsCompleted == int(runningProcess->cpuBurstTimes.size())) {
 				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " terminated "
 						  << ready_Queue_Format(readyQueue) << std::endl;
@@ -181,22 +205,56 @@ void FCFS(std::vector<process_Info> processes, int csTime) {
 				runningProcess->burstEndTime = time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2;
 			}
 		}
+		//Checking if each process has completed its I/O burst time
 		for (int i = 0; i < int(processes.size()); i++) {
 			if (processes[i].burstEndTime == time) {
 				readyQueue.push_back(&processes[i]);
 				std::cout << "time " << time << "ms: Process " << processes[i].processID << " completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
 			}
 		}
+		//Checking if each process has arrived
 		for (int i = 0; i < int(processes.size()); i++) {
 			if (processes[i].arrivalTime == time) {
 				readyQueue.push_back(&processes[i]);
 				std::cout << "time " << time << "ms: Process " << processes[i].processID << " arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
 			}
 		}
+		//Adding to each process's wait time and turnaround time when in the ready queue
+		for (int i = 0; i < int(readyQueue.size()); i++) {
+			readyQueue[i]->waitTimes[readyQueue[i]->burstsCompleted]++;
+			readyQueue[i]->turnaroundTimes[readyQueue[i]->burstsCompleted]++;
+		}
+		//If there's no process running, wait for the context switch time and set the start and end burst times
 		if (!running && readyQueue.size() > 0 && readyQueue[0]->burstStartTime < time) {
 			readyQueue[0]->burstStartTime = time + csTime / 2;
 			readyQueue[0]->burstEndTime = readyQueue[0]->burstStartTime + readyQueue[0]->cpuBurstTimes[readyQueue[0]->burstsCompleted];
 		}
 		time++;
 	}
+	//Calculate all the statistics
+	float avgWaitTime = 0;
+	float avgturnAround = 0;
+	float avgBurstTime = 0;
+	int totalBursts = 0;
+	for (int i = 0; i < int(processes.size()); i++) {
+		for (int j = 0; j < processes[i].numBursts; j++) {
+			avgturnAround += processes[i].turnaroundTimes[j];
+			avgWaitTime += processes[i].waitTimes[j];
+			avgBurstTime += processes[i].cpuBurstTimes[j];
+			totalBursts++;
+		}
+	}
+	avgturnAround /= totalBursts;
+	avgWaitTime /= totalBursts;
+	avgBurstTime /= totalBursts;
+	std::ofstream simout;
+	simout.open("simout.txt");
+	simout << "Algorithm FCFS\n";
+	simout << "-- average CPU burst time: " << std::fixed << std::setprecision(3) << avgBurstTime << " ms\n";
+	simout << "-- average wait time: " << std::fixed << std::setprecision(3) << avgWaitTime << " ms\n";
+	simout << "-- average turnaround time: " << std::fixed << std::setprecision(3) << avgturnAround << " ms\n";
+	simout << "-- total number of context switches: " << numContextSwitches << std::endl;
+	simout << "-- total number of preemptions: 0\n";
+	simout << "-- CPU utilization: " << std::fixed << std::setprecision(3) << cpuUtilization / time * 100 << "%\n";
+	simout.close();
 }
