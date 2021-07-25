@@ -17,7 +17,7 @@ struct process_Info {
 	std::vector<int> waitTimes;
 	int burstsCompleted = 0;
 	int burstStartTime = -1;
-	int burstTimeRemaining = 0;
+	int burstTimeRemaining = 0; //only used when a process is the current process or doing i/o
 	int burstEndTime = -1;
 
 	//returns true if this should come before p2 in an SJF algorithm
@@ -436,10 +436,7 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 	int timeSliceTime = -1;
 	bool cpuUtilized = false;
 	int numPreemptions = 0;
-
-
-
-while (true) {
+	while (true) {
 		//Context switching the process out of the CPU is done
 		if (cpuEmptyTime == time) {
 			running = false;
@@ -532,9 +529,6 @@ while (true) {
 		}
 		time++;
 	}
-
-
-
 	//Calculate all the statistics
 	float avgWaitTime = 0;
 	float avgturnAround = 0;
