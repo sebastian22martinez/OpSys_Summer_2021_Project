@@ -21,16 +21,19 @@ struct process_Info {
 	int burstEndTime = -1;
 	int timeInCPU = 0;
 	int tau = 100; //estimated next cpu burst time
-	int alpha; //ratio for weight of previous tau in estimation process
+	double alpha; //ratio for weight of previous tau in estimation process
 
-	//returns true if this process has less time on their next burst then the passed on process (do not use for SRT running process compare)
+	//returns true if this process has less time on their next burst then the passed on process
 	bool compareProcess(process_Info& p2) { 
-		int p1Time = burstTimeRemaining > 0 ? burstTimeRemaining : tau - (cpuBurstTimes[burstsCompleted] - burstTimeRemaining);
-		int p2Time = p2.burstTimeRemaining > 0 ? p2.burstTimeRemaining : p2.tau - (p2.cpuBurstTimes[p2.burstsCompleted] - p2.burstTimeRemaining);
+		//burstTimeRemaining is > 0 if process is running or has been preempted, 
+		//if so use the estimated time left of tau - time completed (calculated by cpuBurstTimes[burstsCompleted] - burstTimeRemaining)
+		//otherwise just use the estimated time remaining (tau)
+		int p1Time = burstTimeRemaining > 0 ? tau - (cpuBurstTimes[burstsCompleted] - burstTimeRemaining) : tau;
+		int p2Time = p2.burstTimeRemaining > 0 ? p2.tau - (p2.cpuBurstTimes[p2.burstsCompleted] - p2.burstTimeRemaining) : p2.tau;
 		if (p1Time < p2Time) {
 			return true;
 		} else if (p1Time == p2Time) {
-			if (processID < p2.processID) {
+			if (processID > p2.processID) { //got to do > because A > B, but we want A to come before B
 				return true;
 			}
 		}
@@ -140,9 +143,9 @@ double next_exp(int max, double lambda) {
 }
 
 //call after process has completed a CPU burst, assumes burstCompleted has already been +1
-int recalculate_tau(process_Info &proc) {
-	proc.tau = (proc.alpha * proc.cpuBurstTimes[proc.burstsCompleted-1]) + ((1-proc.alpha) * proc.tau);
-	return proc.tau;
+int recalculate_tau(process_Info* proc) {
+	proc->tau = round((proc->alpha * proc->cpuBurstTimes[proc->burstsCompleted-1]) + ((1-proc->alpha) * proc->tau));
+	return proc->tau;
 }
 
 //Returns the ready queue in the format [Q [List of processes in the ready queue]]
@@ -183,7 +186,7 @@ void FCFS(std::vector<process_Info> processes, int csTime) {
 				}
 			}
 			if (done) {
-				std::cout << "time " << time << "ms: Simulator ended for FCFS " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Simulator ended for FCFS " << ready_Queue_Format(readyQueue) << "\n" << std::endl;
 				break;
 			}
 		}
@@ -461,7 +464,7 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 				}
 			}
 			if (done) {
-				std::cout << "time " << time << "ms: Simulator ended for SJF " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Simulator ended for SJF " << ready_Queue_Format(readyQueue) << "\n" << std::endl;
 				break;
 			}
 		}
@@ -472,7 +475,7 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 		if (running && runningProcess->burstStartTime == time) {
 			cpuUtilized = true;
 			runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += csTime / 2;
-			std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) started using the CPU for " 
+			std::cout << "time " << time << "ms: Process " << runningProcess->processID << " (tau " << runningProcess->tau << "ms) started using the CPU for " 
 					  << runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " << ready_Queue_Format(readyQueue) << std::endl;
 		}
 		//Process in the CPU done running, still need to account for context switch times
@@ -494,9 +497,9 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 					burst = "burst";
 				else
 					burst = "bursts";
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) completed a CPU burst; "
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " (tau " << runningProcess->tau << "ms) completed a CPU burst; "
 					<< runningProcess->cpuBurstTimes.size() - runningProcess->burstsCompleted << " " << burst << " to go " << ready_Queue_Format(readyQueue) << std::endl;
-				std::cout << "time " << time << "Recalculated tau from " << runningProcess->tau << " ms to " << recalculate_tau(*runningProcess) << " ms for process " << runningProcess->processID << " " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Recalculated tau from " << runningProcess->tau << "ms to " << recalculate_tau(runningProcess) << "ms for process " << runningProcess->processID << " " << ready_Queue_Format(readyQueue) << std::endl;
 				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " switching out of CPU; will block on I/O until time "
 					<< time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2 << "ms " << ready_Queue_Format(readyQueue) << std::endl;
 				runningProcess->burstEndTime = time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2;
@@ -505,27 +508,33 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 		//Checking if each process has completed its I/O burst time
 		for (int i = 0; i < int(processes.size()); i++) {
 			if (processes[i].burstEndTime == time) {
-				//find spot where process has shorter runtime
-				for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
-					if (processes[i].compareProcess(**itr)) {
-						readyQueue.insert(itr, &processes[i]);
-						break;
+				if (readyQueue.size() > 0) {
+					for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
+						if (processes[i].compareProcess(**itr)) {
+							readyQueue.insert(itr, &processes[i]);
+							break;
+						}
 					}
+				} else {
+					readyQueue.push_front(&processes[i]);
 				}
-				std::cout << "time " << time << "ms: Process " << processes[i].processID << "(tau " << processes[i].tau << "ms) completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Process " << processes[i].processID << " (tau " << processes[i].tau << "ms) completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
 			}
 		}
 		//Checking if each process has arrived
 		for (int i = 0; i < int(processes.size()); i++) {
 			if (processes[i].arrivalTime == time) {
-				//find spot where process has shorter runtime
-				for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
-					if (processes[i].compareProcess(**itr)) {
-						readyQueue.insert(itr, &processes[i]);
-						break;
+				if (readyQueue.size() > 0) {
+					for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
+						if (processes[i].compareProcess(**itr)) {
+							readyQueue.insert(itr, &processes[i]);
+							break;
+						}
 					}
+				} else {
+					readyQueue.push_front(&processes[i]);
 				}
-				std::cout << "time " << time << "ms: Process " << processes[i].processID << "(tau " << processes[i].tau << "ms) arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Process " << processes[i].processID << " (tau " << processes[i].tau << "ms) arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
 			}
 		}
 		//If there's no process running, wait for the context switch time and set the start and end burst times
@@ -594,7 +603,7 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 				}
 			}
 			if (done) {
-				std::cout << "time " << time << "ms: Simulator ended for SRT " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Simulator ended for SRT " << ready_Queue_Format(readyQueue) << "\n" << std::endl;
 				break;
 			}
 		}
@@ -607,12 +616,12 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 			runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += csTime / 2;
 			//Check if the burst is a new one or old one that hasn't finished
 			if (runningProcess->burstTimeRemaining > 0) {
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) started using the CPU for remaining "
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " (tau " << runningProcess->tau << "ms) started using the CPU for remaining "
 					<< runningProcess->burstTimeRemaining << "ms of " << runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " 
 					<< ready_Queue_Format(readyQueue) << std::endl;
 			}
 			else {
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) started using the CPU for "
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " (tau " << runningProcess->tau << "ms) started using the CPU for "
 					<< runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " << ready_Queue_Format(readyQueue) << std::endl;
 			}
 		}
@@ -636,9 +645,9 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 					burst = "burst";
 				else
 					burst = "bursts";
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) completed a CPU burst; "
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " (tau " << runningProcess->tau << "ms) completed a CPU burst; "
 					<< runningProcess->cpuBurstTimes.size() - runningProcess->burstsCompleted << " " << burst << " to go " << ready_Queue_Format(readyQueue) << std::endl;
-				std::cout << "time " << time << "Recalculated tau from " << runningProcess->tau << " ms to " << recalculate_tau(*runningProcess) << " ms for process " << runningProcess->processID << " " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Recalculated tau from " << runningProcess->tau << "ms to " << recalculate_tau(runningProcess) << "ms for process " << runningProcess->processID << " " << ready_Queue_Format(readyQueue) << std::endl;
 				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " switching out of CPU; will block on I/O until time "
 					<< time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2 << "ms " << ready_Queue_Format(readyQueue) << std::endl;
 				runningProcess->burstEndTime = time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2;
@@ -649,7 +658,7 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 			if (processes[i].burstEndTime == time) {
 				if (cpuUtilized && processes[i].compareProcess(*runningProcess)) { //preempt running process if new process comes before it
 					readyQueue.insert(readyQueue.begin(), &processes[i]); //still have to add it to the queue
-					std::cout << "time " << time << "ms: Process " << processes[i].processID << "(tau " << processes[i].tau << "ms) completed I/O; preempting " << runningProcess->processID << ready_Queue_Format(readyQueue) << std::endl;
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << " (tau " << processes[i].tau << "ms) completed I/O; preempting " << runningProcess->processID << ready_Queue_Format(readyQueue) << std::endl;
 					cpuUtilized = false;
 					cpuEmptyTime = time + csTime / 2;
 					numContextSwitches++;
@@ -660,13 +669,17 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 					readyQueue.insert(readyQueue.begin()++, runningProcess); //then add running process back into queue too (here for output reasons)
 				} else {
 					//find spot where process has shorter runtime
-					for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
-						if (processes[i].compareProcess(**itr)) {
-							readyQueue.insert(itr, &processes[i]);
-							break;
+					if (readyQueue.size() > 0) {
+						for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
+							if (processes[i].compareProcess(**itr)) {
+								readyQueue.insert(itr, &processes[i]);
+								break;
+							}
 						}
+					} else {
+						readyQueue.push_front(&processes[i]);
 					}
-					std::cout << "time " << time << "ms: Process " << processes[i].processID << "(tau " << processes[i].tau << "ms) completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << " (tau " << processes[i].tau << "ms) completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
 				}
 			}
 		}
@@ -675,7 +688,7 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 			if (processes[i].arrivalTime == time) {
 				if (cpuUtilized && processes[i].compareProcess(*runningProcess)) { //preempt running process if new process comes before it
 					readyQueue.insert(readyQueue.begin(), &processes[i]); //still have to add it to the queue
-					std::cout << "time " << time << "ms: Process " << processes[i].processID << "(tau " << processes[i].tau << "ms) arrived; preempting " << runningProcess->processID << ready_Queue_Format(readyQueue) << std::endl;
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << " (tau " << processes[i].tau << "ms) arrived; preempting " << runningProcess->processID << ready_Queue_Format(readyQueue) << std::endl;
 					cpuUtilized = false;
 					cpuEmptyTime = time + csTime / 2;
 					numContextSwitches++;
@@ -686,13 +699,17 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 					readyQueue.insert(readyQueue.begin()++, runningProcess); //then add running process back into queue too (here for output reasons)
 				} else {
 					//find spot where process has shorter runtime
-					for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
-						if (processes[i].compareProcess(**itr)) {
-							readyQueue.insert(itr, &processes[i]);
-							break;
+					if (readyQueue.size() > 0) {
+						for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
+							if (processes[i].compareProcess(**itr)) {
+								readyQueue.insert(itr, &processes[i]);
+								break;
+							}
 						}
+					} else {
+						readyQueue.push_front(&processes[i]);
 					}
-					std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << " (tau " << processes[i].tau << "ms) arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
 				}
 			}
 		}
