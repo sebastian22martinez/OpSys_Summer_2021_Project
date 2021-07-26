@@ -33,7 +33,7 @@ struct process_Info {
 		if (p1Time < p2Time) {
 			return true;
 		} else if (p1Time == p2Time) {
-			if (processID > p2.processID) { //got to do > because A > B, but we want A to come before B
+			if (processID < p2.processID) { 
 				return true;
 			}
 		}
@@ -123,6 +123,7 @@ int main(int argc, char ** argv){
 	SJF(processes, csTime);
 	SRT(processes, csTime);
 	RR(processes, csTime, timeSlice);
+	return EXIT_SUCCESS;
 }
 
 //Calculating a random number based on exponential distribution
@@ -144,7 +145,7 @@ double next_exp(int max, double lambda) {
 
 //call after process has completed a CPU burst, assumes burstCompleted has already been +1
 int recalculate_tau(process_Info* proc) {
-	proc->tau = round((proc->alpha * proc->cpuBurstTimes[proc->burstsCompleted-1]) + ((1-proc->alpha) * proc->tau));
+	proc->tau = ceil((proc->alpha * proc->cpuBurstTimes[proc->burstsCompleted-1]) + ((1-proc->alpha) * proc->tau));
 	return proc->tau;
 }
 
@@ -509,11 +510,16 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 		for (int i = 0; i < int(processes.size()); i++) {
 			if (processes[i].burstEndTime == time) {
 				if (readyQueue.size() > 0) {
+					bool added = false;
 					for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
 						if (processes[i].compareProcess(**itr)) {
 							readyQueue.insert(itr, &processes[i]);
+							added = true;
 							break;
 						}
+					}
+					if (!added) {
+						readyQueue.push_back(&processes[i]);
 					}
 				} else {
 					readyQueue.push_front(&processes[i]);
@@ -525,11 +531,16 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 		for (int i = 0; i < int(processes.size()); i++) {
 			if (processes[i].arrivalTime == time) {
 				if (readyQueue.size() > 0) {
+					bool added = false;
 					for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
 						if (processes[i].compareProcess(**itr)) {
 							readyQueue.insert(itr, &processes[i]);
+							added = true;
 							break;
 						}
+					}
+					if (!added) {
+						readyQueue.push_back(&processes[i]);
 					}
 				} else {
 					readyQueue.push_front(&processes[i]);
@@ -670,11 +681,16 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 				} else {
 					//find spot where process has shorter runtime
 					if (readyQueue.size() > 0) {
+						bool added = false;
 						for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
 							if (processes[i].compareProcess(**itr)) {
 								readyQueue.insert(itr, &processes[i]);
+								added = true;
 								break;
 							}
+						}
+						if (!added) {
+							readyQueue.push_back(&processes[i]);
 						}
 					} else {
 						readyQueue.push_front(&processes[i]);
@@ -700,11 +716,16 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 				} else {
 					//find spot where process has shorter runtime
 					if (readyQueue.size() > 0) {
+						bool added = false;
 						for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
 							if (processes[i].compareProcess(**itr)) {
 								readyQueue.insert(itr, &processes[i]);
+								added = true;
 								break;
 							}
+						}
+						if (!added) {
+							readyQueue.push_back(&processes[i]);
 						}
 					} else {
 						readyQueue.push_front(&processes[i]);
