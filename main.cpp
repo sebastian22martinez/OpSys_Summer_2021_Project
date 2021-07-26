@@ -198,8 +198,10 @@ void FCFS(std::vector<process_Info> processes, int csTime) {
 		if (running && runningProcess->burstStartTime == time) {
 			cpuUtilized = true;
 			runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += csTime / 2;
-			std::cout << "time " << time << "ms: Process " << runningProcess->processID << " started using the CPU for " 
+			if (time < 1000) {
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " started using the CPU for " 
 					  << runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " << ready_Queue_Format(readyQueue) << std::endl;
+			}
 		}
 		//Process in the CPU done running, still need to account for context switch times
 		if (running && runningProcess->burstEndTime == time) {
@@ -216,14 +218,16 @@ void FCFS(std::vector<process_Info> processes, int csTime) {
 				runningProcess->burstEndTime = 0;
 			}
 			else {
-				if (runningProcess->burstsCompleted == int(runningProcess->cpuBurstTimes.size()) - 1)
-					burst = "burst";
-				else
-					burst = "bursts";
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " completed a CPU burst; "
-					<< runningProcess->cpuBurstTimes.size() - runningProcess->burstsCompleted << " " << burst << " to go " << ready_Queue_Format(readyQueue) << std::endl;
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " switching out of CPU; will block on I/O until time "
-					<< time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2 << "ms " << ready_Queue_Format(readyQueue) << std::endl;
+				if (time < 1000) {
+					if (runningProcess->burstsCompleted == int(runningProcess->cpuBurstTimes.size()) - 1)
+						burst = "burst";
+					else
+						burst = "bursts";
+					std::cout << "time " << time << "ms: Process " << runningProcess->processID << " completed a CPU burst; "
+						<< runningProcess->cpuBurstTimes.size() - runningProcess->burstsCompleted << " " << burst << " to go " << ready_Queue_Format(readyQueue) << std::endl;
+					std::cout << "time " << time << "ms: Process " << runningProcess->processID << " switching out of CPU; will block on I/O until time "
+						<< time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2 << "ms " << ready_Queue_Format(readyQueue) << std::endl;
+				}
 				runningProcess->burstEndTime = time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2;
 			}
 		}
@@ -231,14 +235,18 @@ void FCFS(std::vector<process_Info> processes, int csTime) {
 		for (int i = 0; i < int(processes.size()); i++) {
 			if (processes[i].burstEndTime == time) {
 				readyQueue.push_back(&processes[i]);
-				std::cout << "time " << time << "ms: Process " << processes[i].processID << " completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				if (time < 1000) {
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << " completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				}
 			}
 		}
 		//Checking if each process has arrived
 		for (int i = 0; i < int(processes.size()); i++) {
 			if (processes[i].arrivalTime == time) {
 				readyQueue.push_back(&processes[i]);
-				std::cout << "time " << time << "ms: Process " << processes[i].processID << " arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				if (time < 1000) {
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << " arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				}
 			}
 		}
 		//If there's no process running, wait for the context switch time and set the start and end burst times
