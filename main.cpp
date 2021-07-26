@@ -332,14 +332,16 @@ void RR(std::vector<process_Info> processes, int csTime, int timeSlice) {
 			timeSliceTime = time + timeSlice;
 			runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += csTime / 2;
 			//Check if the burst is a new one or old one that hasn't finished
-			if (runningProcess->burstTimeRemaining > 0) {
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " started using the CPU for remaining "
-					<< runningProcess->burstTimeRemaining << "ms of " << runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " 
-					<< ready_Queue_Format(readyQueue) << std::endl;
-			}
-			else {
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " started using the CPU for "
-					<< runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " << ready_Queue_Format(readyQueue) << std::endl;
+			if (time < 1000) {
+				if (runningProcess->burstTimeRemaining > 0) {
+					std::cout << "time " << time << "ms: Process " << runningProcess->processID << " started using the CPU for remaining "
+						<< runningProcess->burstTimeRemaining << "ms of " << runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " 
+						<< ready_Queue_Format(readyQueue) << std::endl;
+				}
+				else {
+					std::cout << "time " << time << "ms: Process " << runningProcess->processID << " started using the CPU for "
+						<< runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " << ready_Queue_Format(readyQueue) << std::endl;
+				}
 			}
 		}
 		//Process in the CPU is done running, still need to account for context switch times
@@ -358,14 +360,16 @@ void RR(std::vector<process_Info> processes, int csTime, int timeSlice) {
 				runningProcess->burstEndTime = 0;
 			}
 			else {
-				if (runningProcess->burstsCompleted == int(runningProcess->cpuBurstTimes.size()) - 1)
-					burst = "burst";
-				else
-					burst = "bursts";
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " completed a CPU burst; "
-					<< runningProcess->cpuBurstTimes.size() - runningProcess->burstsCompleted << " " << burst << " to go " << ready_Queue_Format(readyQueue) << std::endl;
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " switching out of CPU; will block on I/O until time "
-					<< time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2 << "ms " << ready_Queue_Format(readyQueue) << std::endl;
+				if (time < 1000) {
+					if (runningProcess->burstsCompleted == int(runningProcess->cpuBurstTimes.size()) - 1)
+						burst = "burst";
+					else
+						burst = "bursts";
+					std::cout << "time " << time << "ms: Process " << runningProcess->processID << " completed a CPU burst; "
+						<< runningProcess->cpuBurstTimes.size() - runningProcess->burstsCompleted << " " << burst << " to go " << ready_Queue_Format(readyQueue) << std::endl;
+					std::cout << "time " << time << "ms: Process " << runningProcess->processID << " switching out of CPU; will block on I/O until time "
+						<< time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2 << "ms " << ready_Queue_Format(readyQueue) << std::endl;
+				}
 				runningProcess->burstEndTime = time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2;
 			}
 		}
@@ -373,7 +377,9 @@ void RR(std::vector<process_Info> processes, int csTime, int timeSlice) {
 		if (cpuUtilized && timeSliceTime == time) {
 			//Don't preempt if the ready queue is empty
 			if (readyQueue.size() == 0) {
-				std::cout << "time " << time << "ms: Time slice expired; no preemption because ready queue is empty " << ready_Queue_Format(readyQueue) << std::endl;
+				if (time < 1000) {
+					std::cout << "time " << time << "ms: Time slice expired; no preemption because ready queue is empty " << ready_Queue_Format(readyQueue) << std::endl;
+				}
 				timeSliceTime += timeSlice;
 			}
 			else{
@@ -383,8 +389,10 @@ void RR(std::vector<process_Info> processes, int csTime, int timeSlice) {
 				runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += time - runningProcess->burstStartTime + csTime / 2;
 				runningProcess->burstTimeRemaining = runningProcess->burstEndTime - time;
 				runningProcess->burstEndTime = time - 1;
-				std::cout << "time " << time << "ms: Time slice expired; process " << runningProcess->processID << " preempted with " 
+				if (time < 1000) {
+					std::cout << "time " << time << "ms: Time slice expired; process " << runningProcess->processID << " preempted with " 
 						  << runningProcess->burstTimeRemaining << "ms to go " << ready_Queue_Format(readyQueue) << std::endl;
+				}
 				numPreemptions++;
 			}
 		}
@@ -392,14 +400,18 @@ void RR(std::vector<process_Info> processes, int csTime, int timeSlice) {
 		for (int i = 0; i < int(processes.size()); i++) {
 			if (processes[i].burstEndTime == time) {
 				readyQueue.push_back(&processes[i]);
-				std::cout << "time " << time << "ms: Process " << processes[i].processID << " completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				if (time < 1000) {
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << " completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				}
 			}
 		}
 		//Checking if each process has arrived
 		for (int i = 0; i < int(processes.size()); i++) {
 			if (processes[i].arrivalTime == time) {
 				readyQueue.push_back(&processes[i]);
-				std::cout << "time " << time << "ms: Process " << processes[i].processID << " arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				if (time < 1000) {
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << " arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				}
 			}
 		}
 		//If there's no process running, wait for the context switch time and set the start and end burst times
