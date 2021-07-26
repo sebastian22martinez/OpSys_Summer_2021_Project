@@ -19,12 +19,17 @@ struct process_Info {
 	int burstStartTime = -1;
 	int burstTimeRemaining = 0; //only used when a process is the current process or doing i/o
 	int burstEndTime = -1;
+	int timeInCPU = 0;
+	int tau = 100; //estimated next cpu burst time
+	int alpha; //ratio for weight of previous tau in estimation process
 
-	//returns true if this should come before p2 in an SJF algorithm
-	bool compareSJF(process_Info& p2) { //TODO: make this fit the pdf specifications better
-		if (cpuBurstTimes[burstsCompleted] < p2.cpuBurstTimes[p2.burstsCompleted]) {
+	//returns true if this process has less time on their next burst then the passed on process (do not use for SRT running process compare)
+	bool compareProcess(process_Info& p2) { 
+		int p1Time = burstTimeRemaining > 0 ? burstTimeRemaining : tau - (cpuBurstTimes[burstsCompleted] - burstTimeRemaining);
+		int p2Time = p2.burstTimeRemaining > 0 ? p2.burstTimeRemaining : p2.tau - (p2.cpuBurstTimes[p2.burstsCompleted] - p2.burstTimeRemaining);
+		if (p1Time < p2Time) {
 			return true;
-		} else if (cpuBurstTimes[burstsCompleted] < p2.cpuBurstTimes[p2.burstsCompleted]) {
+		} else if (p1Time == p2Time) {
 			if (processID < p2.processID) {
 				return true;
 			}
@@ -85,6 +90,8 @@ int main(int argc, char ** argv){
 	std::vector<process_Info> processes;
 	for (int i = 0; i < numProc; i++) {
 		process_Info process;
+		process.tau = int(ceil(1 / lambda));
+		process.alpha = alpha;
 		process.processID = 65 + i;
 		process.arrivalTime = floor(next_exp(upBound, lambda));
 		process.numBursts = ceil(drand48() * 100);
@@ -111,6 +118,7 @@ int main(int argc, char ** argv){
 	std::cout << std::endl;
 	FCFS(processes, csTime);
 	SJF(processes, csTime);
+	SRT(processes, csTime);
 	RR(processes, csTime, timeSlice);
 }
 
@@ -129,6 +137,12 @@ double next_exp(int max, double lambda) {
 		break;
 	}
 	return x;
+}
+
+//call after process has completed a CPU burst, assumes burstCompleted has already been +1
+int recalculate_tau(process_Info &proc) {
+	proc.tau = (proc.alpha * proc.cpuBurstTimes[proc.burstsCompleted-1]) + ((1-proc.alpha) * proc.tau);
+	return proc.tau;
 }
 
 //Returns the ready queue in the format [Q [List of processes in the ready queue]]
@@ -433,7 +447,6 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 	int cpuEmptyTime = -1;
 	float cpuUtilization = 0;
 	int numContextSwitches = 0;
-	int timeSliceTime = -1;
 	bool cpuUtilized = false;
 	int numPreemptions = 0;
 	while (true) {
@@ -448,7 +461,7 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 				}
 			}
 			if (done) {
-				std::cout << "time " << time << "ms: Simulator ended for FCFS " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Simulator ended for SJF " << ready_Queue_Format(readyQueue) << std::endl;
 				break;
 			}
 		}
@@ -459,7 +472,7 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 		if (running && runningProcess->burstStartTime == time) {
 			cpuUtilized = true;
 			runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += csTime / 2;
-			std::cout << "time " << time << "ms: Process " << runningProcess->processID << " started using the CPU for " 
+			std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) started using the CPU for " 
 					  << runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " << ready_Queue_Format(readyQueue) << std::endl;
 		}
 		//Process in the CPU done running, still need to account for context switch times
@@ -481,8 +494,9 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 					burst = "burst";
 				else
 					burst = "bursts";
-				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " completed a CPU burst; "
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) completed a CPU burst; "
 					<< runningProcess->cpuBurstTimes.size() - runningProcess->burstsCompleted << " " << burst << " to go " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "Recalculated tau from " << runningProcess->tau << " ms to " << recalculate_tau(*runningProcess) << " ms for process " << runningProcess->processID << " " << ready_Queue_Format(readyQueue) << std::endl;
 				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " switching out of CPU; will block on I/O until time "
 					<< time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2 << "ms " << ready_Queue_Format(readyQueue) << std::endl;
 				runningProcess->burstEndTime = time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2;
@@ -493,12 +507,12 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 			if (processes[i].burstEndTime == time) {
 				//find spot where process has shorter runtime
 				for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
-					if (processes[i].compareSJF(**itr)) {
+					if (processes[i].compareProcess(**itr)) {
 						readyQueue.insert(itr, &processes[i]);
 						break;
 					}
 				}
-				std::cout << "time " << time << "ms: Process " << processes[i].processID << " completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Process " << processes[i].processID << "(tau " << processes[i].tau << "ms) completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
 			}
 		}
 		//Checking if each process has arrived
@@ -506,12 +520,12 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 			if (processes[i].arrivalTime == time) {
 				//find spot where process has shorter runtime
 				for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
-					if (processes[i].compareSJF(**itr)) {
+					if (processes[i].compareProcess(**itr)) {
 						readyQueue.insert(itr, &processes[i]);
 						break;
 					}
 				}
-				std::cout << "time " << time << "ms: Process " << processes[i].processID << " arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Process " << processes[i].processID << "(tau " << processes[i].tau << "ms) arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
 			}
 		}
 		//If there's no process running, wait for the context switch time and set the start and end burst times
@@ -548,6 +562,178 @@ void SJF(std::vector<process_Info> processes, int csTime) {
 	std::ofstream simout;
 	simout.open("simout.txt", std::ios_base::app);
 	simout << "Algorithm SJF\n";
+	simout << "-- average CPU burst time: " << std::fixed << std::setprecision(3) << avgBurstTime << " ms\n";
+	simout << "-- average wait time: " << std::fixed << std::setprecision(3) << avgWaitTime << " ms\n";
+	simout << "-- average turnaround time: " << std::fixed << std::setprecision(3) << avgturnAround << " ms\n";
+	simout << "-- total number of context switches: " << numContextSwitches << std::endl;
+	simout << "-- total number of preemptions: " << numPreemptions << std::endl;
+	simout << "-- CPU utilization: " << std::fixed << std::setprecision(3) << cpuUtilization / time * 100 << "%\n";
+	simout.close();
+}
+
+void SRT(std::vector<process_Info> processes, int csTime) {
+	std::cout << "time 0ms: Simulator started for SRT [Q empty]" << std::endl;
+	int time = 0;
+	std::list<process_Info*> readyQueue;
+	process_Info* runningProcess;
+	bool running = false;
+	int cpuEmptyTime = -1;
+	float cpuUtilization = 0;
+	int numContextSwitches = 0;
+	bool cpuUtilized = false;
+	int numPreemptions = 0;
+	while (true) {
+		//Context switching the process out of the CPU is done
+		if (cpuEmptyTime == time) {
+			running = false;
+			runningProcess = nullptr;
+			bool done = true;
+			for (int i = 0; i < int(processes.size()); i++) {
+				if (processes[i].burstEndTime != 0) {
+					done = false;
+				}
+			}
+			if (done) {
+				std::cout << "time " << time << "ms: Simulator ended for SRT " << ready_Queue_Format(readyQueue) << std::endl;
+				break;
+			}
+		}
+		//CPU is being utilized(not including context switches)
+		if (cpuUtilized)
+			cpuUtilization++;
+		//Running process switched in ( context switch done )
+		if (running && runningProcess->burstStartTime == time) {
+			cpuUtilized = true;
+			runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += csTime / 2;
+			//Check if the burst is a new one or old one that hasn't finished
+			if (runningProcess->burstTimeRemaining > 0) {
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) started using the CPU for remaining "
+					<< runningProcess->burstTimeRemaining << "ms of " << runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " 
+					<< ready_Queue_Format(readyQueue) << std::endl;
+			}
+			else {
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) started using the CPU for "
+					<< runningProcess->cpuBurstTimes[runningProcess->burstsCompleted] << "ms burst " << ready_Queue_Format(readyQueue) << std::endl;
+			}
+		}
+		//Process in the CPU done running, still need to account for context switch times
+		if (running && runningProcess->burstEndTime == time) {
+			cpuUtilized = false;
+			cpuEmptyTime = time + csTime / 2;
+			numContextSwitches++;
+			runningProcess->burstTimeRemaining = 0;
+			runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += runningProcess->burstEndTime - runningProcess->burstStartTime + csTime / 2;
+			runningProcess->burstsCompleted++;
+			std::string burst = "";
+			//If this is the last burst for this process
+			if (runningProcess->burstsCompleted == int(runningProcess->cpuBurstTimes.size())) {
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " terminated "
+						  << ready_Queue_Format(readyQueue) << std::endl;
+				runningProcess->burstEndTime = 0;
+			}
+			else {
+				if (runningProcess->burstsCompleted == int(runningProcess->cpuBurstTimes.size()) - 1)
+					burst = "burst";
+				else
+					burst = "bursts";
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) completed a CPU burst; "
+					<< runningProcess->cpuBurstTimes.size() - runningProcess->burstsCompleted << " " << burst << " to go " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "Recalculated tau from " << runningProcess->tau << " ms to " << recalculate_tau(*runningProcess) << " ms for process " << runningProcess->processID << " " << ready_Queue_Format(readyQueue) << std::endl;
+				std::cout << "time " << time << "ms: Process " << runningProcess->processID << " switching out of CPU; will block on I/O until time "
+					<< time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2 << "ms " << ready_Queue_Format(readyQueue) << std::endl;
+				runningProcess->burstEndTime = time + runningProcess->ioBurstTimes[runningProcess->burstsCompleted - 1] + csTime / 2;
+			}
+		}
+		//Checking if each process has completed its I/O burst time
+		for (int i = 0; i < int(processes.size()); i++) {
+			if (processes[i].burstEndTime == time) {
+				if (cpuUtilized && processes[i].compareProcess(*runningProcess)) { //preempt running process if new process comes before it
+					readyQueue.insert(readyQueue.begin(), &processes[i]); //still have to add it to the queue
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << "(tau " << processes[i].tau << "ms) completed I/O; preempting " << runningProcess->processID << ready_Queue_Format(readyQueue) << std::endl;
+					cpuUtilized = false;
+					cpuEmptyTime = time + csTime / 2;
+					numContextSwitches++;
+					runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += time - runningProcess->burstStartTime + csTime / 2;
+					runningProcess->burstTimeRemaining = runningProcess->burstEndTime - time;
+					runningProcess->burstEndTime = time - 1;
+					numPreemptions++;
+					readyQueue.insert(readyQueue.begin()++, runningProcess); //then add running process back into queue too (here for output reasons)
+				} else {
+					//find spot where process has shorter runtime
+					for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
+						if (processes[i].compareProcess(**itr)) {
+							readyQueue.insert(itr, &processes[i]);
+							break;
+						}
+					}
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << "(tau " << processes[i].tau << "ms) completed I/O; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				}
+			}
+		}
+		//Checking if each process has arrived
+		for (int i = 0; i < int(processes.size()); i++) {
+			if (processes[i].arrivalTime == time) {
+				if (cpuUtilized && processes[i].compareProcess(*runningProcess)) { //preempt running process if new process comes before it
+					readyQueue.insert(readyQueue.begin(), &processes[i]); //still have to add it to the queue
+					std::cout << "time " << time << "ms: Process " << processes[i].processID << "(tau " << processes[i].tau << "ms) arrived; preempting " << runningProcess->processID << ready_Queue_Format(readyQueue) << std::endl;
+					cpuUtilized = false;
+					cpuEmptyTime = time + csTime / 2;
+					numContextSwitches++;
+					runningProcess->turnaroundTimes[runningProcess->burstsCompleted] += time - runningProcess->burstStartTime + csTime / 2;
+					runningProcess->burstTimeRemaining = runningProcess->burstEndTime - time;
+					runningProcess->burstEndTime = time - 1;
+					numPreemptions++;
+					readyQueue.insert(readyQueue.begin()++, runningProcess); //then add running process back into queue too (here for output reasons)
+				} else {
+					//find spot where process has shorter runtime
+					for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) { 
+						if (processes[i].compareProcess(**itr)) {
+							readyQueue.insert(itr, &processes[i]);
+							break;
+						}
+					}
+					std::cout << "time " << time << "ms: Process " << runningProcess->processID << "(tau " << runningProcess->tau << "ms) arrived; added to ready queue " << ready_Queue_Format(readyQueue) << std::endl;
+				}
+			}
+		}
+		//If there's no process running, wait for the context switch time and set the start and end burst times
+		if (!running && readyQueue.size() > 0 && (*readyQueue.begin())->burstStartTime < time) {
+			runningProcess = (*readyQueue.begin());
+			running = true;
+			readyQueue.pop_front();
+			runningProcess->burstTimeRemaining = runningProcess->burstEndTime - time;
+			runningProcess->burstStartTime = time + csTime / 2;
+			runningProcess->burstEndTime = runningProcess->burstStartTime + runningProcess->cpuBurstTimes[runningProcess->burstsCompleted];
+		}
+		//Adding to each process's wait time and turnaround time when in the ready queue
+		for (std::list<process_Info*>::iterator itr = readyQueue.begin(); itr != readyQueue.end(); itr++) {
+			(*itr)->waitTimes[(*itr)->burstsCompleted]++;
+			(*itr)->turnaroundTimes[(*itr)->burstsCompleted]++;
+		}
+		time++;
+		if (cpuUtilized && runningProcess != nullptr) {
+			runningProcess->burstTimeRemaining = runningProcess->burstEndTime - time;
+		}
+	}
+	//Calculate all the statistics
+	float avgWaitTime = 0;
+	float avgturnAround = 0;
+	float avgBurstTime = 0;
+	int totalBursts = 0;
+	for (int i = 0; i < int(processes.size()); i++) {
+		for (int j = 0; j < processes[i].numBursts; j++) {
+			avgturnAround += processes[i].turnaroundTimes[j];
+			avgWaitTime += processes[i].waitTimes[j];
+			avgBurstTime += processes[i].cpuBurstTimes[j];
+			totalBursts++;
+		}
+	}
+	avgturnAround /= totalBursts;
+	avgWaitTime /= totalBursts;
+	avgBurstTime /= totalBursts;
+	std::ofstream simout;
+	simout.open("simout.txt", std::ios_base::app);
+	simout << "Algorithm SRT\n";
 	simout << "-- average CPU burst time: " << std::fixed << std::setprecision(3) << avgBurstTime << " ms\n";
 	simout << "-- average wait time: " << std::fixed << std::setprecision(3) << avgWaitTime << " ms\n";
 	simout << "-- average turnaround time: " << std::fixed << std::setprecision(3) << avgturnAround << " ms\n";
