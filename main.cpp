@@ -126,7 +126,10 @@ int main(int argc, char ** argv){
 		processInfo += std::to_string(process.arrivalTime);
 		processInfo += " ms) ";
 		processInfo += std::to_string(process.numBursts);
-		processInfo += " CPU bursts (tau ";
+		processInfo += " CPU ";
+		std::string plural = process.numBursts == 1 ? "burst" : "bursts";
+		processInfo += plural;
+		processInfo += " (tau ";
 		processInfo += std::to_string(int(ceil(1 / lambda)));
 		processInfo += "ms)";
 		std::cout << processInfo << std::endl;
