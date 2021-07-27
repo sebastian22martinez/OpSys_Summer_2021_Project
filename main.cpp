@@ -642,6 +642,9 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 		//Context switching the process out of the CPU is done
 		if (cpuEmptyTime == time) {
 			running = false;
+			if (runningProcess->burstTimeRemaining > 0) {
+				shortest_Queue_Add(readyQueue, runningProcess);
+			}
 			runningProcess = nullptr;
 			bool done = true;
 			for (int i = 0; i < int(processes.size()); i++) {
@@ -686,7 +689,7 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 				runningProcess->burstTimeRemaining = runningProcess->burstEndTime - time;
 				runningProcess->burstEndTime = time - 1;
 				numPreemptions++;
-				shortest_Queue_Add(readyQueue, runningProcess);
+				//shortest_Queue_Add(readyQueue, runningProcess);
 			}
 			
 		}
@@ -738,7 +741,7 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 					runningProcess->burstTimeRemaining = runningProcess->burstEndTime - time;
 					runningProcess->burstEndTime = time - 1;
 					numPreemptions++;
-					shortest_Queue_Add(readyQueue, runningProcess);
+					//shortest_Queue_Add(readyQueue, runningProcess);
 				} else {
 					shortest_Queue_Add(readyQueue, &processes[i]);
 					if (time < 1000) {
@@ -762,7 +765,8 @@ void SRT(std::vector<process_Info> processes, int csTime) {
 					runningProcess->burstTimeRemaining = runningProcess->burstEndTime - time;
 					runningProcess->burstEndTime = time - 1;
 					numPreemptions++;
-					shortest_Queue_Add(readyQueue, runningProcess);
+					//shortest_Queue_Add(readyQueue, runningProcess);
+					
 				} else {
 					shortest_Queue_Add(readyQueue, &processes[i]);
 					if (time < 1000) {
